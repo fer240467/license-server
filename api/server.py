@@ -47,6 +47,16 @@ def init_db():
         )
     """)
 
+    # Fechas de trial (proteccion anti-borrado)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS trial_dates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hwid TEXT UNIQUE NOT NULL,
+            install_date TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # Códigos de verificación temporales
     c.execute("""
         CREATE TABLE IF NOT EXISTS codes (
@@ -163,7 +173,87 @@ def log_attempt(email, ip_address):
 @app.route("/api/health", methods=["GET"])
 def health():
     """Health check"""
-    return jsonify({"status": "ok", "version": "1.0"})
+    return jsonify({"status": "ok", "version": "2.0"})
+
+
+@app.route("/api/trial-register", methods=["POST"])
+def trial_register():
+    """Registra la fecha de primera instalacion por HWID"""
+    data = request.get_json()
+    hwid = data.get("hwid")
+    install_date = data.get("date")
+
+    if not hwid or not install_date:
+        return jsonify({"error": "hwid and date required"}), 400
+
+    conn = get_db()
+    c = conn.cursor()
+
+    # Verificar si ya existe registro
+    c.execute("SELECT install_date FROM trial_dates WHERE hwid = ?", (hwid,))
+    existing = c.fetchone()
+
+    if existing:
+        # Ya tiene registro - no sobreescribir
+        conn.close()
+        return jsonify({"date": existing[0], "existing": True})
+
+    # Guardar nueva fecha
+    c.execute("INSERT INTO trial_dates (hwid, install_date) VALUES (?, ?)",
+              (hwid, install_date))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"date": install_date, "existing": False})
+
+
+@app.route("/api/trial-date", methods=["GET"])
+def trial_date():
+    """Obtiene la fecha de instalacion de un HWID"""
+    hwid = request.args.get("hwid")
+
+    if not hwid:
+        return jsonify({"error": "hwid required"}), 400
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT install_date FROM trial_dates WHERE hwid = ?", (hwid,))
+    row = c.fetchone()
+    conn.close()
+
+    if row:
+        return jsonify({"date": row[0]})
+    return jsonify({"date": None})
+
+
+@app.route("/api/check", methods=["POST"])
+def check():
+    """Valida token + HWID"""
+    data = request.get_json()
+    token = data.get("token")
+    hwid = data.get("hwid")
+
+    if not token or not hwid:
+        return jsonify({"error": "token and hwid required"}), 400
+
+    # Rate limit check
+    if not check_rate_limit(hwid):
+        return jsonify({"error": "Demasiados intentos. Espera una hora."}), 429
+
+    # Validar JWT
+    payload = decode_token(token)
+    if not payload:
+        return jsonify({"valid": False, "error": "Token invalido"}), 200
+
+    # Verificar expiracion
+    if payload.get("exp", 0) < time.time():
+        return jsonify({"valid": False, "error": "Token expirado"}), 200
+
+    # Verificar HWID
+    if payload.get("hwid") != hwid:
+        return jsonify({"valid": False, "error": "HWID no coincide"}), 200
+
+    return jsonify({"valid": True, "expires": payload.get("expires")})
 
 @app.route("/api/activate", methods=["POST"])
 def activate():
