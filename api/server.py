@@ -27,8 +27,6 @@ TOKEN_EXPIRY_DAYS = 365
 
 print(f"[CONFIG] EMAIL_USER={EMAIL_USER}, EMAIL_PASS={'SET' if EMAIL_PASS else 'EMPTY'}, DB={DB_PATH}")
 
-init_db()
-
 # ─────────────────────────────────────────────
 # BASE DE DATOS
 # ─────────────────────────────────────────────
@@ -73,6 +71,8 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+init_db()
 
 # ─────────────────────────────────────────────
 # UTILIDADES
@@ -389,6 +389,5 @@ def payment_success():
 # INICIAR
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    init_db()
     print("License Server started on port 5000")
     app.run(host="0.0.0.0", port=5000, debug=True)
