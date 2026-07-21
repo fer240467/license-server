@@ -99,6 +99,7 @@ def verify_token(token):
 
 def send_email(to_email, code):
     """Envía el código por email (usa Gmail SMTP)"""
+    print(f"[EMAIL] EMAIL_USER={EMAIL_USER}, EMAIL_PASS={'***' if EMAIL_PASS else 'EMPTY'}")
     if not EMAIL_USER or not EMAIL_PASS:
         print(f"[DEV] Código para {to_email}: {code}")
         return True  # En desarrollo, solo imprime
@@ -116,12 +117,13 @@ Super Downloader Team
     msg["To"] = to_email
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
             server.login(EMAIL_USER, EMAIL_PASS)
             server.send_message(msg)
+        print(f"[EMAIL] Email enviado a {to_email}")
         return True
     except Exception as e:
-        print(f"Error enviando email: {e}")
+        print(f"[EMAIL] Error enviando email: {e}")
         return False
 
 def check_rate_limit(email, ip_address):
