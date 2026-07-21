@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: super-downloader-license
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+      - key: PYTHON_VERSION
+        value: 3.11.0

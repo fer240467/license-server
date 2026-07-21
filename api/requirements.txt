@@ -1,0 +1,5 @@
+flask>=3.0
+PyJWT>=2.8
+gunicorn>=21.0
+mercadopago>=3.0
+requests>=2.28
