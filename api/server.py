@@ -19,11 +19,15 @@ app = Flask(__name__)
 
 # Configuración
 SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_hex(32))
-DB_PATH = os.environ.get("DB_PATH", "licenses.db")
-EMAIL_USER = os.environ.get("EMAIL_USER", "")  # tu@gmail.com
-EMAIL_PASS = os.environ.get("EMAIL_PASS", "")  # contraseña de aplicación
+DB_PATH = os.environ.get("DB_PATH", "/tmp/licenses.db")
+EMAIL_USER = os.environ.get("EMAIL_USER", "")
+EMAIL_PASS = os.environ.get("EMAIL_PASS", "")
 CODE_EXPIRY_MINUTES = 15
 TOKEN_EXPIRY_DAYS = 365
+
+print(f"[CONFIG] EMAIL_USER={EMAIL_USER}, EMAIL_PASS={'SET' if EMAIL_PASS else 'EMPTY'}, DB={DB_PATH}")
+
+init_db()
 
 # ─────────────────────────────────────────────
 # BASE DE DATOS
@@ -168,44 +172,49 @@ def activate():
     Envía: { "email": "user@gmail.com", "hwid": "ABC123..." }
     Responde: { "success": true, "message": "Código enviado" }
     """
-    data = request.json
-    email = data.get("email", "").strip().lower()
-    hwid = data.get("hwid", "")
+    try:
+        data = request.json
+        email = data.get("email", "").strip().lower()
+        hwid = data.get("hwid", "")
 
-    if not email or "@" not in email:
-        return jsonify({"success": False, "error": "Email inválido"}), 400
+        if not email or "@" not in email:
+            return jsonify({"success": False, "error": "Email inválido"}), 400
 
-    ip = request.remote_addr
+        ip = request.remote_addr
 
-    # Rate limit
-    if not check_rate_limit(email, ip):
+        # Rate limit
+        if not check_rate_limit(email, ip):
+            log_attempt(email, ip)
+            return jsonify({"success": False, "error": "Demasiados intentos. Esperá 1 hora."}), 429
+
         log_attempt(email, ip)
-        return jsonify({"success": False, "error": "Demasiados intentos. Esperá 1 hora."}), 429
 
-    log_attempt(email, ip)
+        # Generar código
+        code = generate_code()
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
 
-    # Generar código
-    code = generate_code()
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+        # Borrar códigos viejos de este email
+        c.execute("DELETE FROM codes WHERE email = ?", (email,))
 
-    # Borrar códigos viejos de este email
-    c.execute("DELETE FROM codes WHERE email = ?", (email,))
+        # Guardar nuevo código
+        c.execute("""
+            INSERT INTO codes (email, code, hwid) VALUES (?, ?, ?)
+        """, (email, code, hwid))
+        conn.commit()
+        conn.close()
 
-    # Guardar nuevo código
-    c.execute("""
-        INSERT INTO codes (email, code, hwid) VALUES (?, ?, ?)
-    """, (email, code, hwid))
-    conn.commit()
-    conn.close()
+        # Enviar email
+        email_ok = send_email(email, code)
+        if email_ok:
+            return jsonify({"success": True, "message": "Código enviado a tu email"})
+        else:
+            # Si falla el email, devolver el código directamente (modo fallback)
+            return jsonify({"success": True, "message": "Código generado", "code": code})
 
-    # Enviar email
-    email_ok = send_email(email, code)
-    if email_ok:
-        return jsonify({"success": True, "message": "Código enviado a tu email"})
-    else:
-        # Si falla el email, devolver el código directamente (modo fallback)
-        return jsonify({"success": True, "message": "Código generado", "code": code})
+    except Exception as e:
+        print(f"[ERROR] activate: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/api/verify", methods=["POST"])
 def verify():
