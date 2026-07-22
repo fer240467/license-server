@@ -19,6 +19,7 @@ import jwt
 app = Flask(__name__)
 
 SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "superdownloader_admin_2024")
 DB_PATH = os.environ.get("DB_PATH", "/tmp/licenses.db")
 EMAIL_USER = os.environ.get("EMAIL_USER", "")
 EMAIL_PASS = os.environ.get("EMAIL_PASS", "")
@@ -153,6 +154,28 @@ def log_attempt(email, ip_address):
 @app.route("/api/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "version": "2.0"})
+
+
+@app.route("/api/admin/clear-trial", methods=["POST"])
+def admin_clear_trial():
+    """Admin: limpia datos de prueba de un HWID"""
+    data = request.get_json()
+    admin_key = data.get("admin_key", "")
+    hwid = data.get("hwid", "")
+
+    if admin_key != ADMIN_KEY:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    if not hwid:
+        return jsonify({"error": "hwid required"}), 400
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM trial_dates WHERE hwid = ?", (hwid,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"success": True, "message": f"Trial data cleared for {hwid}"})
 
 
 @app.route("/api/trial-register", methods=["POST"])
