@@ -117,15 +117,25 @@ Super Downloader Team
     msg["From"] = EMAIL_USER
     msg["To"] = to_email
 
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
+    # Try STARTTLS (port 587) first, fallback to SSL (port 465)
+    for port, use_ssl in [(587, False), (465, True)]:
+        try:
+            if use_ssl:
+                server = smtplib.SMTP_SSL("smtp.gmail.com", port, timeout=15)
+            else:
+                server = smtplib.SMTP("smtp.gmail.com", port, timeout=15)
+                server.starttls()
             server.login(EMAIL_USER, EMAIL_PASS)
             server.send_message(msg)
-        print(f"[EMAIL] Email enviado a {to_email}")
-        return True
-    except Exception as e:
-        print(f"[EMAIL] Error enviando email: {e}")
-        return False
+            server.quit()
+            print(f"[EMAIL] Email enviado a {to_email} (port {port})")
+            return True
+        except Exception as e:
+            print(f"[EMAIL] Error en puerto {port}: {e}")
+            continue
+
+    print(f"[EMAIL] No se pudo enviar email por ningun puerto")
+    return False
 
 def check_rate_limit(email, ip_address):
     conn = sqlite3.connect(DB_PATH)
