@@ -23,6 +23,7 @@ ADMIN_KEY = os.environ.get("ADMIN_KEY", "superdownloader_admin_2024")
 DB_PATH = os.environ.get("DB_PATH", "/tmp/licenses.db")
 EMAIL_USER = os.environ.get("EMAIL_USER", "")
 EMAIL_PASS = os.environ.get("EMAIL_PASS", "")
+SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 CODE_EXPIRY_MINUTES = 15
 TOKEN_EXPIRY_DAYS = 365
 
@@ -100,42 +101,45 @@ def verify_token(token):
         return None
 
 def send_email(to_email, code):
-    print(f"[EMAIL] EMAIL_USER={EMAIL_USER}, EMAIL_PASS={'***' if EMAIL_PASS else 'EMPTY'}")
-    if not EMAIL_USER or not EMAIL_PASS:
+    print(f"[EMAIL] SENDGRID_API_KEY={'SET' if SENDGRID_API_KEY else 'EMPTY'}, EMAIL_USER={EMAIL_USER}")
+
+    if not SENDGRID_API_KEY:
         print(f"[DEV] Codigo para {to_email}: {code}")
         return True
 
-    msg = MIMEText(f"""
+    payload = {
+        "personalizations": [{"to": [{"email": to_email}]}],
+        "from": {"email": EMAIL_USER or "superdownloader.uy@gmail.com", "name": "Super Downloader"},
+        "subject": "Super Downloader - Tu codigo de activacion",
+        "content": [{"type": "text/plain", "value": f"""
 Tu codigo de activacion es: {code}
 
 Este codigo expira en {CODE_EXPIRY_MINUTES} minutos.
 Si no solicitaste este codigo, ignora este email.
 
 Super Downloader Team
-    """)
-    msg["Subject"] = "Super Downloader - Tu codigo de activacion"
-    msg["From"] = EMAIL_USER
-    msg["To"] = to_email
+        """}]
+    }
 
-    # Try STARTTLS (port 587) first, fallback to SSL (port 465)
-    for port, use_ssl in [(587, False), (465, True)]:
-        try:
-            if use_ssl:
-                server = smtplib.SMTP_SSL("smtp.gmail.com", port, timeout=15)
-            else:
-                server = smtplib.SMTP("smtp.gmail.com", port, timeout=15)
-                server.starttls()
-            server.login(EMAIL_USER, EMAIL_PASS)
-            server.send_message(msg)
-            server.quit()
-            print(f"[EMAIL] Email enviado a {to_email} (port {port})")
+    try:
+        response = requests.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            timeout=15
+        )
+        if response.status_code in (200, 202):
+            print(f"[EMAIL] Email enviado a {to_email} via SendGrid")
             return True
-        except Exception as e:
-            print(f"[EMAIL] Error en puerto {port}: {e}")
-            continue
-
-    print(f"[EMAIL] No se pudo enviar email por ningun puerto")
-    return False
+        else:
+            print(f"[EMAIL] SendGrid error: {response.status_code} {response.text}")
+            return False
+    except Exception as e:
+        print(f"[EMAIL] Error enviando email: {e}")
+        return False
 
 def check_rate_limit(email, ip_address):
     conn = sqlite3.connect(DB_PATH)
